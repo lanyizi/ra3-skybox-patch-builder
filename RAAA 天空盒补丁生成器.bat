@@ -1,0 +1,1 @@
+powershell -WindowStyle Hidden -ExecutionPolicy Bypass -Sta "%~dp0script.ps1"
