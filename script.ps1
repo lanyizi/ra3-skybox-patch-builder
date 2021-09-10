@@ -8,6 +8,10 @@ if ($PSScriptRoot -eq $Null) {
     $PSScriptRoot = Split-Path $MyInvocation.MyCommand.Path -Parent
 }
 
+# 小提示：假如要调试这个工具的话，建议直接启动这个 powershell 脚本
+# 或者把 .bat 文件里的 -WindowStyle Hidden 去掉
+# 这样可以看到脚本的输出
+
 ### 编译步骤
 $global:willClearBuiltDirectory = $True
 $global:willGenerateCubeMap = $True
@@ -361,6 +365,8 @@ function global:Start-PatchBuild($context, $dispatcher) {
             return
         }
 
+        New-Item -ItemType Directory -Path $generatedDirectory -Force | Out-Null
+
         $cmftProcess = Generate-SkyboxCubeMap $skyboxTexturePath $context.SynchronizationContext
         & $context.ChangeTrackedProcesses $cmftProcess
         $cmftProcess.Add_Exited($context.OnCubeMapGenerationEnd)
@@ -378,7 +384,7 @@ function global:Start-PatchBuild($context, $dispatcher) {
             return
         }
 
-        $skyboxXmlFile = Get-Item $skyboxXml
+        $skyboxXmlFile = New-Item -ItemType File -Path $skyboxXml -Force
         [IO.File]::WriteAllText($skyboxXmlFile.FullName, $skyboxXmlContent)
         & $context.StartWrathEd
     }.GetNewClosure()
@@ -473,7 +479,7 @@ function global:Generate-SkyboxCubeMap($texturePath, $synchronizationContext) {
 }
 
 function global:Start-WrathEd($synchronizationContext, $changeTrackedProcesses, $onCompleted) {
-    
+
     $builtDataDirectory = [IO.Path]::Combine($builtDirectory, "data")
     New-Item -ItemType Directory -Force -Path $builtDataDirectory | Out-Null
 
@@ -510,7 +516,7 @@ function global:Start-WrathEd($synchronizationContext, $changeTrackedProcesses, 
         ChangeTrackedProcesses = $changeTrackedProcesses
         OnCompleted = $onCompleted 
         SynchronizationContext = $synchronizationContext
-        
+
         Steps = @()
         StepCounter = 0
     }
