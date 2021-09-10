@@ -97,7 +97,7 @@ $global:bigFileFilter = "BIG 文件（*.big）|*.big|所有文件（*.*）|*.*"
 $global:creditsText = @"
 <Hyperlink NavigateUri="https://github.com/lanyizi/ra3-skybox-patch-builder">
     $mainTitle
-</Hyperlink> v0.1
+</Hyperlink> v0.11
 <LineBreak />
 这个生成器使用了
 <Hyperlink NavigateUri="https://github.com/lanyizi/panorama-to-cubemap">
@@ -196,7 +196,7 @@ function Initialize-Wpf($window, $nativeWindow) {
                             $inline.Add_RequestNavigate({ 
                                 param ($sender, $e)
                                 if ($e.Uri.IsFile) {
-                                    explorer.exe "/select,`"$($e.Uri.LocalPath)`""
+                                    Start-Process explorer.exe -ArgumentList "/select,`"$($e.Uri.LocalPath)`""
                                 }
                                 else {
                                     Start-Process $e.Uri
@@ -522,9 +522,9 @@ function global:Start-WrathEd($synchronizationContext, $changeTrackedProcesses, 
     }
 
     $context.LaunchWrathEd = {
-        param ($context, $args)
-        [Console]::WriteLine("WED Arguments: $($args)");
-        $process = [JobSupport]::Prepare($wrathEdPath, $context.Args, $context.SynchronizationContext)
+        param ($context, $wedArgs)
+        [Console]::WriteLine("WED Arguments: $($wedArgs)");
+        $process = [JobSupport]::Prepare($wrathEdPath, $wedArgs, $context.SynchronizationContext)
         & $context.ChangeTrackedProcesses $process
         $process.Add_Exited($context.StepEnd)
         $process.WorkingDirectory = $builtDirectory
