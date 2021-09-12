@@ -1,4 +1,4 @@
-﻿#Requires -Version 2
+#Requires -Version 2
 
 if ($PSCommandPath -eq $Null) {
     $PSCommandPath = $MyInvocation.MyCommand.Definition
@@ -8,10 +8,6 @@ if ($PSScriptRoot -eq $Null) {
     $PSScriptRoot = Split-Path $MyInvocation.MyCommand.Path -Parent
 }
 
-# 小提示：假如要调试这个工具的话，建议直接启动这个 powershell 脚本
-# 或者把 .bat 文件里的 -WindowStyle Hidden 去掉
-# 这样可以看到脚本的输出
-
 ### 编译步骤
 $global:willClearBuiltDirectory = $True
 $global:willGenerateCubeMap = $True
@@ -19,6 +15,11 @@ $global:willCompilePatch = $True
 $global:willCompilePatchLodLevels = $True
 $global:willCopyAdditionalFiles = $True
 $global:willCreateBigFile = $True
+
+# 是否创建天空盒的过滤版本并将其保存在 MipMap 里
+# 这会耗费更多的资源以及大量的时间，
+# 但是作为 PBR 材质的反射贴图来说，这是很有必要的
+$global:willFilterCubeMap = $False
 
 ### 各种参数
 # 工具路径
@@ -88,6 +89,12 @@ $global:generateCubeMapStatus = "处理天空盒贴图"
 $global:wedStatus = "编译"
 $global:copyAdditionalFilesStatus = "复制额外文件"
 $global:createBigFileStatus = "创建 BIG 文件"
+$global:filterCubeMapLabel = "为天空盒贴图创建处理过的 Mipmap"
+$global:filterCubeMapDetail = "把天空盒用作反射贴图时需要勾选，会大幅增加处理时间。"
+$global:needShaderMessage = @"
+既然要使用过滤的天空盒贴图，那么请把其他需要的着色器文件也复制到 {0} 里。
+或者就直接删除 shaders/compiled 文件夹，以防止生成的补丁文件覆盖掉 Mod 里正常的着色器。
+"@
 $global:emptyBigMessage = "没有任何文件能被添加到 BIG 里，可能是哪些其他地方出了问题"
 $global:saveFailedMessage = "保存 BIG 文件失败：{0}"
 $global:chooseSkyboxTextureTitle = "选择天空盒贴图"
@@ -126,6 +133,12 @@ $xaml = [xml]@"
                 Margin="4" HorizontalAlignment="Left"
                 Content="$compileButtonText"
             />
+            <CheckBox x:Name="ToggleFilterCubeMap" 
+                Margin="4,4,4,0" HorizontalAlignment="Left" Content="$filterCubeMapLabel" 
+            />
+            <TextBlock Margin="4,0,4,4" TextWrapping="Wrap" Foreground="Gray">
+                $filterCubeMapDetail
+            </TextBlock>
             <Button x:Name="CancelButton"
                 Margin="4" HorizontalAlignment="Left" Visibility="Collapsed"
                 Content="$cancelButtonText"
@@ -424,6 +437,23 @@ function global:Start-PatchBuild($context, $dispatcher) {
         & $context.Complete $True
     }.GetNewClosure()
 
+    if ($willFilterCubeMap) {
+        $shadersDirectory = Join-Path $additionalFilesDirectory "shaders"
+        $compiledShadersDirectory = Join-Path $shadersDirectory "compiled"
+        $scrapeoPath = Join-Path $compiledShadersDirectory "ingame.scrapeo"
+        $scrapeoIrradianceText = "var shader IrradianceMapGenerator IrradianceMapGenerator.fx"
+        if (Test-Path $scrapeoPath -PathType Leaf) {            
+            $scrapeoText = Get-Content $scrapeoPath
+            $irradianceMentioned = $scrapeoText -match $scrapeoIrradianceText
+            if (-not $irradianceMentioned) {
+                $message = [string]::Format($needShaderMessage, $compiledShadersDirectory)
+                [Windows.Forms.MessageBox]::Show($message, $mainTitle)
+                & $context.Complete $False
+                return
+            }
+        }
+    }
+
     if ($willClearBuiltDirectory) {
         & $context.ClearBuiltDirectory
     }
@@ -452,13 +482,17 @@ function global:Get-SkyboxTexturePath($nativeWindow) {
 }
 
 function global:Generate-SkyboxCubeMap($texturePath, $synchronizationContext) {
+    $mipCount = 1
+    if ($willFilterCubeMap) {
+        $mipCount = 9
+    }
     $args = @(
         "--input `"$texturePath`""
         "--filter radiance"
         "--edgefixup warp"
         "--srcFaceSize 0"
         "--excludeBase true"
-        "--mipCount 9"
+        "--mipCount $mipCount"
         "--generateMipChain false"
         "--glossScale 17"
         "--glossBias 3"
