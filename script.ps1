@@ -812,7 +812,16 @@ public class JobSupport
 
         public void Start()
         {
-            _process.Start();
+            try 
+            {
+                _process.Start();
+            }
+            catch
+            {
+                RaiseActualExitEvent(false);
+                _process.Dispose();
+                throw;
+            }
         }
 
         public void Kill()
@@ -822,10 +831,14 @@ public class JobSupport
 
         private void ExitEventHandler(object sender, EventArgs e)
         {
-            _succeeded = _process.ExitCode == 0;
-            _process.Exited -= ExitEventHandler;
-            _synchronizationContext.Post(ActualEventExecutor, null);
+            RaiseActualExitEvent(_process.ExitCode == 0);
             _process.Dispose();
+        }
+
+        private void RaiseActualExitEvent(bool succeeded)
+        {
+            _succeeded = succeeded;
+            _synchronizationContext.Post(ActualEventExecutor, null);
         }
 
         private void ActualEventExecutor(object state)
