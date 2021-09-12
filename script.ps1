@@ -1,4 +1,4 @@
-#Requires -Version 2
+﻿#Requires -Version 2
 
 if ($PSCommandPath -eq $Null) {
     $PSCommandPath = $MyInvocation.MyCommand.Definition
@@ -65,6 +65,11 @@ $global:mainDescription = @"
 接着，点击 “创建天空盒补丁”，这将会弹出一个窗口用来选择之前创建的十字贴图文件。
 那么，只要选择了正确的文件，就能生成天空盒补丁了（
 "@
+$global:updateMessage = @"
+<Hyperlink NavigateUri="https://github.com/lanyizi/ra3-skybox-patch-builder/releases">
+    新版本已经发布！
+</Hyperlink>
+"@
 $global:cancelDescription = "假如生成天空盒贴图的时间过长的话，可以考虑点击`“取消`”按钮然后重试一次"
 $global:htmlButtonText = "创建十字贴图文件"
 $global:compileButtonText = "创建天空盒补丁"
@@ -104,7 +109,7 @@ $global:bigFileFilter = "BIG 文件（*.big）|*.big|所有文件（*.*）|*.*"
 $global:creditsText = @"
 <Hyperlink NavigateUri="https://github.com/lanyizi/ra3-skybox-patch-builder">
     $mainTitle
-</Hyperlink> v0.11
+</Hyperlink> v0.2
 <LineBreak />
 这个生成器使用了
 <Hyperlink NavigateUri="https://github.com/lanyizi/panorama-to-cubemap">
@@ -121,10 +126,13 @@ $xaml = [xml]@"
 <Window
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    x:Name="Window" Title="$mainTitle" Width="360" Height="400">
+    x:Name="Window" Title="$mainTitle" Width="370" Height="450">
     <ScrollViewer Margin="0" VerticalScrollBarVisibility="Auto">
         <StackPanel Orientation="Vertical" Margin="8">
             <TextBlock x:Name="MainDescription" Margin="4" TextWrapping="Wrap" />
+            <TextBlock x:Name="UpdateMessage" Margin="4" TextWrapping="Wrap" Visibility="Collapsed">
+                $updateMessage
+            </TextBlock>
             <Button x:Name="HtmlButton"
                 Margin="4" HorizontalAlignment="Left"
                 Content="$htmlButtonText"
@@ -183,6 +191,10 @@ $xaml = [xml]@"
 </Window>
 "@
 
+# 版本发布
+$global:releasesApiUrl = "https://api.github.com/repos/lanyizi/ra3-skybox-patch-builder/releases"
+$global:releaseCreationDate = [DateTime]"2021-09-12T09:30:00Z"
+
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName PresentationFramework
 [Windows.Forms.Application]::EnableVisualStyles()
@@ -234,6 +246,7 @@ function Initialize-Wpf($window, $nativeWindow) {
 
     $window.FindName("MainDescription").Text = $mainDescription
     $window.FindName("CancelDescription").Text = $cancelDescription
+    $updateMessage = $window.FindName("UpdateMessage")
     $htmlButton = $window.FindName("HtmlButton")
     $compileButton = $window.FindName("CompileButton")
     $cancelButton = $window.FindName("CancelButton")
@@ -243,6 +256,26 @@ function Initialize-Wpf($window, $nativeWindow) {
     $advancedPanel = $window.FindName("AdvancedPanel")
     $basePatchStreamNameInput = $window.FindName("BasePatchStreamNameInput")
     $newStreamVersionInput = $window.FindName("NewStreamVersionInput")
+
+    try
+    {
+        $updateMessageSyncContext = New-Object Windows.Threading.DispatcherSynchronizationContext -ArgumentList $updateMessage.Dispatcher
+        $downloader = [JobSupport]::NewDownloader($updateMessageSyncContext)
+        $downloader.Add_Downloaded({
+            param ($sender)
+
+            $matches = ([Regex]"\`"created_at\`"\s*:\s*\`"([^\`"]*)").Matches($sender.Content)
+            foreach ($match in $matches) {
+                if ([DateTime]($match.Groups[1].Value) -gt $releaseCreationDate) {
+                    [Console]::WriteLine([DateTime]($match.Groups[1].Value))
+                    [Console]::WriteLine($releaseCreationDate)
+                    $updateMessage.Visibility = [Windows.Visibility]::Visible
+                }
+            }
+        }.GetNewClosure())
+        $downloader.Download($releasesApiUrl)
+    }
+    catch { }
 
     $context = @{
         NativeWindow = $nativeWindow
@@ -757,7 +790,9 @@ $window = [Windows.Markup.XamlReader]::Load($reader)
 $jobSupport = @"
 using System;
 using System.Diagnostics;
+using System.Net;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 
 public class JobSupport
@@ -821,6 +856,50 @@ public class JobSupport
 
     [DllImport("kernel32.dll")]
     public static extern IntPtr GetCurrentProcess();
+
+    public class Downloader
+    {
+        private SynchronizationContext _synchronizationContext;
+        private WebClient _webClient;
+        private string _content;
+        public event EventHandler Downloaded;
+
+        public string Content { get { return _content; } }
+
+        public Downloader(SynchronizationContext synchronizationContext)
+        {
+            _synchronizationContext = synchronizationContext;
+            _webClient = new WebClient();
+            _webClient.Encoding = Encoding.UTF8;
+            _webClient.Headers.Add("User-Agent: LanyiRAAASkyboxPatchBuilder");
+            _webClient.DownloadStringCompleted += DownloadEventHandler;
+        }
+
+        public void Download(string url)
+        {
+            _webClient.DownloadStringAsync(new Uri(url));
+        }
+
+        private void DownloadEventHandler(object sender, DownloadStringCompletedEventArgs e)
+        {
+            _webClient.DownloadStringCompleted -= DownloadEventHandler;
+            if (!e.Cancelled && e.Error == null)
+            {
+                _content = (string)e.Result;
+                _synchronizationContext.Post(ActualEventExecutor, null);
+            }
+        }
+
+        private void ActualEventExecutor(object state)
+        {
+            EventHandler handlers = Downloaded;
+            Downloaded = null;
+            if (handlers != null)
+            {
+                handlers(this, EventArgs.Empty);
+            }
+        }
+    }
 
     public class TrackedProcess
     {
@@ -888,6 +967,11 @@ public class JobSupport
 
     private const UInt32 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000;
     private static bool _initialized = false;
+
+    public static Downloader NewDownloader(SynchronizationContext context)
+    {
+        return new Downloader(context);
+    }
 
     public static TrackedProcess Prepare(string fileName, string arguments, SynchronizationContext context)
     {
