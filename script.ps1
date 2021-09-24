@@ -8,7 +8,7 @@ if ($PSScriptRoot -eq $Null) {
     $PSScriptRoot = Split-Path $MyInvocation.MyCommand.Path -Parent
 }
 
-### 编译步骤
+### 编译步骤 / Build Steps
 $global:willClearBuiltDirectory = $True
 $global:willGenerateCubeMap = $True
 $global:willCompilePatch = $True
@@ -19,31 +19,34 @@ $global:willCreateBigFile = $True
 # 是否创建天空盒的过滤版本并将其保存在 MipMap 里
 # 这会耗费更多的资源以及大量的时间，
 # 但是作为 PBR 材质的反射贴图来说，这是很有必要的
+# Generate mipmaps by filtering the cubemap: 
+# it will take much more time, 
+# but it's required if the cubemap will used as PBR shader's reflection texture
 $global:willFilterCubeMap = $False
 
-### 各种参数
-# 工具路径
+### 各种参数 / Various parameters
+# 工具路径 / Tools' path
 $global:htmlPath = Join-Path (Join-Path $PSScriptRoot "panorama-to-cubemap") "index.html"
 $global:cmftPath = Join-Path (Join-Path $PSScriptRoot "cmft") "cmftRelease.exe"
 $global:wrathEdPath = Join-Path (Join-Path $PSScriptRoot "WrathEdDebug") "WrathEd.exe"
 
-# 文件夹路径
+# 文件夹路径 / Various folders
 $global:patchDirectory = Join-Path $PSScriptRoot "static-patch"
 $global:additionalFilesDirectory = Join-Path $patchDirectory "additional"
 $global:generatedDirectory = Join-Path $patchDirectory "generated"
 $global:builtDirectory = Join-Path $patchDirectory "built"
 $global:basePatchStreamDirectory = Join-Path $patchDirectory "base-patch-streams"
 
-# 最终生成的 BIG 文件一开始存放的路径
+# 最终生成的 BIG 文件一开始存放的路径 / The path where the generated BIG file is initially stored
 $global:outputDirectory = Join-Path $PSScriptRoot "output"
 $global:outputBigPath = Join-Path $outputDirectory "Skybox.big"
 
-# WED 编译参数
+# WED 编译参数 / WrathEd options
 $global:inputXml = Join-Path $patchDirectory "static.xml"
 $global:newStreamVersion = ".sky"
 $global:basePatchStreamName = "static.12.manifest"
 
-# 自动生成的天空盒贴图
+# 自动生成的天空盒贴图 / Various stuffs for the automatically generated skybox
 $global:outputCubeMap = Join-Path $generatedDirectory "skybox"
 $global:skyboxXml = "$outputCubeMap.xml"
 $global:skyboxXmlContent = @"
@@ -56,6 +59,8 @@ $global:skyboxXmlContent = @"
 "@
 
 ### UI 文本
+if ([Globalization.Cultureinfo]::Currentculture.Name.Startswith("zh")) {
+# 中文 / Chinese
 $global:mainTitle = "RAAA 天空盒补丁生成器"
 $global:mainDescription = @"
 岚依的天空盒补丁生成器，应该能兼容大部分 mod（
@@ -109,7 +114,7 @@ $global:bigFileFilter = "BIG 文件（*.big）|*.big|所有文件（*.*）|*.*"
 $global:creditsText = @"
 <Hyperlink NavigateUri="https://github.com/lanyizi/ra3-skybox-patch-builder">
     $mainTitle
-</Hyperlink> v0.2
+</Hyperlink> v0.3
 <LineBreak />
 这个生成器使用了
 <Hyperlink NavigateUri="https://github.com/lanyizi/panorama-to-cubemap">
@@ -121,6 +126,84 @@ $global:creditsText = @"
     WrathEd
 </Hyperlink> 等工具
 "@
+}
+else {
+# 英文 / English
+$global:mainTitle = "RAAA Skybox Patch Generator"
+$global:mainDescription = @"
+Lanyi's skybox patch generator - you can use this tool to create a patch which adds sky background for RA3.
+It should be compatible with most of mods, you don't have to recompile your mod to use this patch.
+Of course, this tool requires some basic knowledge about modding Red Alert 3 (like how to get the game or another mod to load a BIG file).
+Usage:
+  First, click "Generate Cross Texture" to convert a 2:1 paronama texture into a cross layout texture compatible with RA3's conventions.
+  Then, Click "Create Skybox Patch", which will open a window asking for the texture file created in the previous step.
+  After selecting the file, skybox patch will be generated.
+"@
+$global:updateMessage = @"
+<Hyperlink NavigateUri="https://github.com/lanyizi/ra3-skybox-patch-builder/releases">
+    A new version of this tool is available!
+</Hyperlink>
+"@
+$global:cancelDescription = "If it's taking too long to generate the skybox map, consider clicking the `"Cancel`" button and try again."
+$global:htmlButtonText = "Generate Cross Texture"
+$global:compileButtonText = "Create Skybox Patch"
+$global:cancelButtonText = "Cancel"
+$global:showAdvancedButtonText = "Show Advanced Options"
+$global:hideAdvancedButtonText = "Hide Advanced Options"
+$global:compilePatchText = "Build patch"
+$global:compilePatchLodLevelsText = "Build low and medium LOD levels"
+$global:basePatchStreamDescription = "Build patch based on this manifest"
+$global:newStreamVersionText = "New manifest version string"
+$global:editThisScriptText = @"
+If you want to customize the build process even more, you can edit the
+<Hyperlink x:Name="ThisScriptLink" NavigateUri="$PSCommandPath">
+    $((Get-Item $PSCommandPath).Name)
+</Hyperlink>
+file directly. You'll need to restart $mainTitle after editing the powershell script.
+"@
+$global:statusMessage = "Current step: {0}"
+$global:statusFailedMessage = "Step failed: {0}"
+$global:clearBuiltDirectoryStatus = "Clear built files"
+$global:generateCubeMapStatus = "Process skybox cubemap"
+$global:wedStatus = "Compiling"
+$global:copyAdditionalFilesStatus = "Copy extra files"
+$global:createBigFileStatus = "Create BIG file"
+$global:filterCubeMapLabel = "Generate filtered mipmaps"
+$global:filterCubeMapDetail = "The generated skybox texture will be suitable for use as a reflection texture, but it will significantly increase processing time."
+$global:needShaderMessage = @"
+The shaders provided by this tool doesn't make use of reflection texture (or its derivatives).
+If you generate a filtered cubemap, then you should copy your own shader files into {0}.
+Or consider deleting the directory shaders/compiled, to make sure the files provided by this tool won't override your shader files.
+"@
+$global:emptyBigMessage = "No files added to the patch's BIG file, or maybe something else went wrong"
+$global:saveFailedMessage = "Failed to save BIG file: {0}"
+$global:chooseSkyboxTextureTitle = "Choose a skybox texture"
+$global:skyboxTextureFilter = "Skybox texture (*.png;*.tga;*.jpg;*.bmp;*.dds;*.hdr)|*.png;*.tga;*.jpg;*.bmp;*.dds;*.hdr|All files (*.*)|*.*"
+$global:saveBigFileTitle = "Save BIG file"
+$global:bigFileFilter = "BIG file (*.big)|*.big|All files (*.*)|*.*"
+$global:creditsText = @"
+<Hyperlink NavigateUri="https://github.com/lanyizi/ra3-skybox-patch-builder">
+    $mainTitle
+</Hyperlink> v0.3
+<LineBreak />
+This tool relies on following programs:
+<Hyperlink NavigateUri="https://github.com/lanyizi/panorama-to-cubemap">
+    panorama-to-cubemap
+</Hyperlink>,<Hyperlink NavigateUri="https://github.com/dariomanesku/cmft">
+    cmft
+</Hyperlink> and
+<Hyperlink NavigateUri="https://github.com/Qibbi/WrathEd2012">
+    WrathEd
+</Hyperlink>.
+<LineBreak />
+Thanks 
+<Hyperlink NavigateUri="https://github.com/Medstar117">
+    Medstar
+</Hyperlink>
+for the English translation.
+"@
+}
+
 
 $xaml = [xml]@"
 <Window
@@ -191,9 +274,9 @@ $xaml = [xml]@"
 </Window>
 "@
 
-# 版本发布
+# 版本发布 / Version checker
 $global:releasesApiUrl = "https://api.github.com/repos/lanyizi/ra3-skybox-patch-builder/releases"
-$global:releaseCreationDate = [DateTime]"2021-09-12T09:30:00Z"
+$global:releaseCreationDate = [DateTime]"2021-09-24T04:00:00Z"
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName PresentationFramework
@@ -304,6 +387,9 @@ function Initialize-Wpf($window, $nativeWindow) {
 
     $context.SetStatus = {
         param ($statusText)
+        if ($statusText -eq $Null) {
+            $statusText = ""
+        }
         $context.StatusText = $statusText
         $statusDescription.Text = [string]::Format($statusMessage, $context.StatusText)
         $statusDescription = [Windows.Visibility]::Visible
